@@ -170,6 +170,31 @@ dam-ai，下线 tools 容器 `/rest/model-infer`（modelId 寻址）路径，回
 - [ ] 回归标准：全部既有回归用例通过；tools 容器下线后 48h 无 1020 端口调用（日志零命中）
 
 
+### 第三类模型裁决：classic engine（传统视觉分类器/检测器，Phase 4 前置）
+
+tools 容器里除 CLIP embedding（embedder 覆盖）和 VL 生成（tagger 覆盖）外，还有第三类
+「传统视觉模型」，vLLM/ST/open_clip 三个 loader 都不吃（TF-Keras/ONNX/detectron 格式）。
+souJpg 在用且不能断的（userUpload 管线 mapper 顺序号）：
+
+| modelId | 功能 | 调用点 | 裁决 |
+|---|---|---|---|
+| 61624780 | 主色提取 + color PQ | colorFieldMapper(11)、**qColorsInfo 颜色搜索**（拼色图→opqCode→ES） | ✅ 进 dam-ai（DAM 通用需求） |
+| 39559380 | 调色板 hexColors | colorPaletteFieldMapper(12) | ✅ 进 dam-ai（同上，颜色类合并一个 color 服务） |
+| 28717010 | NSFW 打分 | nsfwFieldMapper(0)，nsfw_score | ✅ 进 dam-ai（DAM 通用需求；现权 = 本地 TF Keras nsfw 家族，/data1/.../models/nsfw/） |
+| 32484322 | 图像质量分 | imageQualityFieldMapper(13) | ✅ 进 dam-ai（DAM 通用需求） |
+| 49931946 | 人体部位检测 | bodyPartFieldMapper | ⚠️ 暂不迁：偏业务 + 隐私合规敏感，留 tools 或随 tools 一并淘汰（另观察） |
+| 49305217 | 人脸特征 + OPQ | faceOpqCodesMapper / peopleFieldsMapper | ⚠️ 同上暂不迁 |
+
+- [ ] dam-ai 增加 `classic/` engine：按模型格式配 loader（TF-Keras saved_model / ONNX /
+      ultralytics 等），统一接口 `/v1/classify`（image + task → scores），registry 同样
+      path 寻址 + 离线加载
+- [ ] 首批 classic 注册：color(61624780 含 PQ)、palette(39559380)、nsfw(28717010)、
+      quality(32484322)——从 tools 容器提取权重与后处理，输出字段对齐现有
+      （hexColors/opqCode/nsfw_score/qualityScore），对照验收新旧一致
+- [ ] 颜色搜索专项回归：qColorsInfo → 拼色图 → opqCode → ES colorCodes top10 切换前后一致
+- [ ] 人脸/人体部位：peopleNum 字段当前由 VL（vlUnifiedFieldMapper）+ BodyPart 双路出，
+      确认 VL 路径全覆盖后可淘汰 bodyPart/faceOpq 依赖（独立验收项）
+
 ## 四、明确不做（边界）
 
 - 不做编排/队列/定时（DAM 主项目管线负责，dam-ai 是无状态推理服务）
