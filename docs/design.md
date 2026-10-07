@@ -11,9 +11,16 @@ dam-ai (monorepo)
 ├── embedder/    → transformers engine（ST + open_clip 双 loader：覆盖 Qwen3-VL-Emb / SigLIP2 / CLIP / DINOv3）
 ├── classic/     → 传统 CV 算法 engine（numpy/skimage/faiss：颜色直方图 / 调色板 / PQ 编码，无模型权重，CPU 可跑）
 ├── registry/    → 模型注册表 + 任务模板注册表
-├── server/      → FastAPI 统一 API 层（各 engine 独立进程、独立 GPU 配额）
-└── deploy/      → 每模型一个 compose service
+├── server/      → FastAPI server 代码（同一套代码打进各 engine 服务）
+└── deploy/      → 每 engine 一个 compose service（模型需独占 GPU 时可再拆）
 ```
+
+部署拓扑（已裁决：方案 B，无统一网关层）：
+- 每 engine 一个独立 compose service，内置完整 server 代码，各自占用独立端口：
+  embedder=8090 / tagger=8091 / classic=8092（classic 无 GPU 也能跑）
+- 一个 service 内可注册多个模型（registry 寻址，请求 model 字段区分），不做路由层/服务发现
+- GPU 配额隔离 = 容器级隔离；某模型需独占 GPU 时拆独立 service（新端口），上游 LB URL 列表追加即可
+- 各 service 只暴露自己 engine 的端点（embedder 无 /v1/tagging，tagger 无 /v1/embeddings）
 
 裁决依据（来自原型实测）：
 - 打标是生成式任务，vLLM paged attention + continuous batching 有数量级吞吐优势；结构化输出用 vLLM guided decoding（json_schema），不自己写正则解析。
@@ -68,6 +75,7 @@ content-parts 风格扩展；不学 TEI 把 truncate/compress 等私有参数塞
   "model": "qwen3.5-vl-4b",            // 可选，默认用模板 model_default
   "concurrency": 8
 }
+// inputs 服务端硬上限 64 条/请求，超出 4xx；更大批量由调用方自行分片（dam-ai 不做队列）
 // 响应：item 级 status + id 原样透传（调用方按自有 id 回写）
 {
   "results": [
@@ -94,13 +102,29 @@ params: {temperature: 0.2, max_tokens: 1024} # 锁死，调用方不可覆盖
 模板规则：prompt/schema/params 三件套服务端锁死（输出可比性 = 结果可回写的前提）；
 task_version 随响应返回写回资产记录（可定位重刷范围）；评测横评固定 task version 只变 model。
 
+模板分层（已裁决：外部目录合并加载，不开 fork、不进数据库）：
+- 内置模板 `registry/tasks.d/*.yaml` 只放通用模板；业务/私有模板放外部目录，不进开源仓
+- 外部目录由 env `DAMAI_TASK_DIRS` 指定（冒号分隔可多个），compose volume 挂载进 tagger service；
+  同名模板外部覆盖内置（启动时 log 记录覆盖清单）
+- 外部模板与内置走同一套 schema 校验，校验失败拒绝启动；allowed_models / params 锁死 /
+  task_version 规则对外部模板同等生效，只是存放位置不同
+- docs/ 附 example template + 外部目录接入说明（下游接入指南）
+
 ### 4. /v1/classify（传统视觉模型）
 
 ```json
-// 请求
-{"task": "color", "image_url": "https://...", "model": "color-v1"}
-// 响应：输出字段由 task schema 声明（如 hexColors / opqCode / nsfw_score / qualityScore）
-{"task": "color", "status": "ok", "output": {"hexColors": ["#1a2b3c", "..."]}}
+// 请求（批量，风格与 /v1/tagging 对齐：item 级 status + id 透传；inputs 上限同 64）
+{
+  "task": "color",
+  "model": "color-v1",
+  "inputs": [{"id": "228123456", "image_url": "https://..."}]
+}
+// 响应：输出字段由 task schema 声明（如 hexColors / opqCode / qualityScore）
+{
+  "results": [
+    {"id": "228123456", "status": "ok", "task": "color", "output": {"hexColors": ["#1a2b3c", "..."]}}
+  ]
+}
 ```
 
 ### 5. /v1/models
@@ -129,12 +153,12 @@ task_version 随响应返回写回资产记录（可定位重刷范围）；评�
 - 首批 4 模型注册：qwen3-vl-embedding-2b(ST) / siglip2-so400m(open_clip) / clip-vit-l14(open_clip) / dinov3-vitb16(open_clip)
 - /v1/embeddings：文本 100% OpenAI 兼容 + image_url content part 扩展 + float16 选项
 - /v1/models / healthz / readyz
-- deploy/compose：单模型一 service
+- deploy/compose：embedder 单 service（端口 8090，内置 4 模型注册，model 字段区分）
 - 验收：openai SDK 纯文本调用通过；四模型 cosine(self)=1.0 自检
 
 ### Phase 2 — tagger MVP（vLLM engine）
-- vLLM 子进程/子容器封装：OpenAI 协议透传 + 健康检查
-- 任务模板注册表（YAML + Jinja2 + json schema 校验）
+- vLLM 独立 service（端口 8091）：OpenAI 协议透传 + 健康检查
+- 任务模板注册表（YAML + Jinja2 + json schema 校验）+ 外部模板目录合并加载（DAMAI_TASK_DIRS，见「模板分层」）
 - /v1/tagging：批量扇出 → vLLM continuous batching、item 级 status、id 透传、失败重试
 - 首批模板：image_caption_metadata / nsfw_check / translate（通用打标需求，无业务耦合）
 - 验收：单图/多图/批量混合失败场景；task_version 回带
@@ -143,7 +167,9 @@ task_version 随响应返回写回资产记录（可定位重刷范围）；评�
 - `classic/` engine：**纯算法、无模型权重、CPU 可跑**——从 tools 的 mcsearch/ 移植
   （colorModel.py ColorModelV2：HSV 调色板 + LAB 空间平滑直方图；imageColorPalette.py
   ImageColorPalette：faiss.Kmeans 像素聚类；PQ 码本编码），统一接口 `/v1/classify`
-  （image + task → codes/scores）；PQ 码本文件随 registry path 寻址，算法常驻内存
+  （image + task → codes/scores）；PQ 码本文件随 registry path 寻址，算法常驻内存。
+  **码本裁决：直接复用 tools 既有码本文件，禁止重新训练**——ES 存量 opqCode 与新服务
+  必须同一码空间，否则颜色搜索直接错乱
 - 首批注册（均为通用 DAM 需求，NSFW/质量/people 已由 VL 路径覆盖不迁）：
 
 | 能力 | 输出字段 | 说明 |
@@ -153,7 +179,8 @@ task_version 随响应返回写回资产记录（可定位重刷范围）；评�
 
 - 颜色能力无 GPU 依赖，正好支撑「无 GPU 退化模式」：DAM 用户 CPU 即可用颜色搜索
 - 偏业务 + 隐私合规敏感的能力（人脸特征、人体部位检测）不纳入，随 tools 淘汰
-- 验收：输出字段与既有实现逐项对齐（features/hexColors/opqCode 逐字节一致）；
+- 验收：输出字段与既有实现逐项对齐（features/hexColors/opqCode 逐字节一致，
+  numpy/skimage/faiss 版本锁定与 tools 现役一致）；
   颜色搜索链路（qColorsInfo 拼色图 → opqCode → ES colorCodes top10）切换前后一致
 
 ### Phase 4 — 开源化打磨
@@ -172,9 +199,9 @@ souJpg 侧已有现成基建，dam-ai 接入零新增路由代码：
 
    ```yaml
    serviceName2UrlInfo:
-     damai-embed:    ["http://gpu0.dev.yufei.com:8090/v1"]
-     damai-tag:      ["http://gpu0.dev.yufei.com:8090/v1"]
-     damai-classify: ["http://gpu0.dev.yufei.com:8090/v1"]
+     damai-embed:    ["http://gpu0.dev.yufei.com:8090/v1"]   # embedder service
+     damai-tag:      ["http://gpu0.dev.yufei.com:8091/v1"]   # tagger (vLLM) service
+     damai-classify: ["http://gpu0.dev.yufei.com:8092/v1"]   # classic service（CPU）
    ```
 
    多机房 = URL 列表多列各机房实例；DamAiClient 照 vlUnified 的 `self._lb.call(...)`
@@ -187,7 +214,8 @@ souJpg 侧已有现成基建，dam-ai 接入零新增路由代码：
    现网 gpu0/gpu7 同内网无多机房现实；真到多机房时在 LB URL 条目加 region 权重
    （软降级全池，优于 HttpModelInfer 的硬过滤拒绝服务）。
 4. **切换面**（gcf 配置即可切换，不动 mapper 内部逻辑）：
-   - vlUnifiedFieldMapper：qwenVL-chat → damai-tag（模板对齐现 prompt）
+   - vlUnifiedFieldMapper：qwenVL-chat → damai-tag（souJpg 业务模板转 yaml 放 image-front-api
+     仓 deploy 目录，经 DAMAI_TASK_DIRS 挂载进 tagger，**不进 dam-ai 开源仓**；输出与现行对照后再切）
    - ImageEmbeddingFieldMapper / 语义搜索 CLIP(57490277) → damai-embed
    - QwenVLClient（translate/caption/describe/embed）→ DamAiClient
    - colorFieldMapper/colorPaletteFieldMapper(61624780/39559380) → damai-classify
