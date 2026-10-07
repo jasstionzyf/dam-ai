@@ -134,6 +134,42 @@ task_version 随响应返回写回图片记录（可定位重刷范围）；评�
 - [ ] CI：单测（registry 校验 / API schema）+ 集成测试（小模型 CPU smoke）
 - [ ] 发布 v0.1.0
 
+### Phase 4 — 接入 souJpg，替换 tools 容器（model-infer-api gpu7:1020）旧接口
+
+目标：dam-ai embedder/tagger 上线后，souJpg 后端（ifa-test → 生产）推理调用全部切到
+dam-ai，下线 tools 容器 `/rest/model-infer`（modelId 寻址）路径，回归全绿。
+
+现状依赖（2026-10-08 盘点，迁移面）：
+- `gcf.modelInferAPI`（baseConf_test.yaml `modelInferAPI: http://…:1020/rest/model-infer`）
+  → `HttpModelInfer.inferWithParams`，modelId 字符串寻址：
+  - 57490277 CLIP（图/文 embedding）：searchInfoBuilder.setTextEmbedding（语义搜索，强制
+    semanticSearchMode=1）、opNodeExecuteEngine（以图搜图）、comm.py 离线批量任务
+  - 34593113 SeamlessM4T（translate）：searchInfoBuilder.translateInner / keywordsHelper /
+    Text2ImageOpNode —— **大部分已被 QwenVLClient.translate（vLLM :30000）替代，仅残路径**
+  - 55774328 text embedding（semanticSearchMode=0，当前被强制 1，死路径）
+  - 99183490 BLIP / 26311198 VL describe：已被 QwenVLClient（qwenVL.chatApi）替代
+  - opNodeExecuteEngine 其余 modelId（SD/codeFormer/faceSwap/realESR/nsfw 9877205/4483468/
+    61624780/49305217/29311198 等）：图像工具类，多数已停用（tools 容器 Exited 5 天）
+- 现役推理端点（不走 1020）：vLLM :30000（chat）、:30001（Qwen3-VL-Emb embeddings）、
+  tokenizer :8207 —— 这些也统一切到 dam-ai 单入口
+
+步骤：
+- [ ] 4.1 dam-ai embedder 注册 clip-vit-l14（open_clip loader，与 57490277 同权重/同预处理，
+      输出向量必须与现网 CLIP 向量同空间——ES 1.07 亿 imageEmbedding 不重建，只换推理提供方）
+- [ ] 4.2 dam-ai tagger 注册 translate / caption / describe 任务模板（对齐 QwenVLClient
+      现有 prompt，输出逐字节兼容）
+- [ ] 4.3 ifa-test：baseConf 增加 damAi 端点配置；新增 DamAiClient（embeddings + tagging +
+      chat 透传），QwenVLClient 与 HttpModelInfer(CLIP/translate) 调用点改为 DamAiClient
+- [ ] 4.4 对照验收：同输入下新旧接口向量 cos ≥ 0.999（CLIP 路径必须 =1.0，同权重）、
+      translate/caption 输出一致；ES 语义搜索返回 top10 与切换前一致
+- [ ] 4.5 全量回归：soujpg E2E（soujpg-e2e-test）+ 前端浏览器 E2E（soujpg-web-e2e-test），
+      重点：语义搜索、以图搜图、userUpload 管线（caption/title/oKws）、AI 编辑、翻译链路
+- [ ] 4.6 生产（gpu7 compose）同步切换 + 观察，下线 tools 容器（docker rm，镜像保留）
+- [ ] 4.7 移除 gcf.modelInferAPI / HttpModelInfer 死代码路径（55774328、99183490、26311198、
+      opNode 停用 modelId），baseConf 清理
+- [ ] 回归标准：全部既有回归用例通过；tools 容器下线后 48h 无 1020 端口调用（日志零命中）
+
+
 ## 四、明确不做（边界）
 
 - 不做编排/队列/定时（DAM 主项目管线负责，dam-ai 是无状态推理服务）
