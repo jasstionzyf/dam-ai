@@ -170,30 +170,32 @@ dam-ai，下线 tools 容器 `/rest/model-infer`（modelId 寻址）路径，回
 - [ ] 回归标准：全部既有回归用例通过；tools 容器下线后 48h 无 1020 端口调用（日志零命中）
 
 
-### 第三类模型裁决：classic engine（传统视觉分类器/检测器，Phase 4 前置）
+### 第三类模型裁决：classic engine（传统视觉分类器/检测器，Phase 4 前置）——2026-10-08 修正
 
-tools 容器里除 CLIP embedding（embedder 覆盖）和 VL 生成（tagger 覆盖）外，还有第三类
-「传统视觉模型」，vLLM/ST/open_clip 三个 loader 都不吃（TF-Keras/ONNX/detectron 格式）。
-souJpg 在用且不能断的（userUpload 管线 mapper 顺序号）：
+**修正认知**：vlUnifiedFieldMapper 文件头已声明 Replaces: nsfwFieldMapper /
+imageQualityFieldMapper / peopleFieldsMapper / faceOpqCodesMapper 等——userUpload 管线
+的 NSFW/质量/people(peopleNum/gender/age/emotion/faceNum) 全部已由 VL 出（:209-217），
+这些 modelId 在管线里是**死依赖**（实例化但结果被 VL 路径覆盖/不再消费）。
+
+tools（1020）真正的活依赖只剩**颜色类两个**：
 
 | modelId | 功能 | 调用点 | 裁决 |
 |---|---|---|---|
-| 61624780 | 主色提取 + color PQ | colorFieldMapper(11)、**qColorsInfo 颜色搜索**（拼色图→opqCode→ES） | ✅ 进 dam-ai（DAM 通用需求） |
-| 39559380 | 调色板 hexColors | colorPaletteFieldMapper(12) | ✅ 进 dam-ai（同上，颜色类合并一个 color 服务） |
-| 28717010 | NSFW 打分 | nsfwFieldMapper(0)，nsfw_score | ✅ 进 dam-ai（DAM 通用需求；现权 = 本地 TF Keras nsfw 家族，/data1/.../models/nsfw/） |
-| 32484322 | 图像质量分 | imageQualityFieldMapper(13) | ✅ 进 dam-ai（DAM 通用需求） |
-| 49931946 | 人体部位检测 | bodyPartFieldMapper | ⚠️ 暂不迁：偏业务 + 隐私合规敏感，留 tools 或随 tools 一并淘汰（另观察） |
-| 49305217 | 人脸特征 + OPQ | faceOpqCodesMapper / peopleFieldsMapper | ⚠️ 同上暂不迁 |
+| 61624780 | 主色提取 + color PQ | colorFieldMapper(11)、**qColorsInfo 颜色搜索**（拼色图→opqCode→ES colorCodes） | ✅ 进 dam-ai classic |
+| 39559380 | 调色板 hexColors | colorPaletteFieldMapper(12) | ✅ 进 dam-ai classic |
 
-- [ ] dam-ai 增加 `classic/` engine：按模型格式配 loader（TF-Keras saved_model / ONNX /
-      ultralytics 等），统一接口 `/v1/classify`（image + task → scores），registry 同样
-      path 寻址 + 离线加载
-- [ ] 首批 classic 注册：color(61624780 含 PQ)、palette(39559380)、nsfw(28717010)、
-      quality(32484322)——从 tools 容器提取权重与后处理，输出字段对齐现有
-      （hexColors/opqCode/nsfw_score/qualityScore），对照验收新旧一致
+已确认非活依赖（Phase 4.7 直接删，不迁）：
+- 28717010 nsfw / 32484322 quality / 79391017 people / 49305217 faceOpq / 49931946 bodyPart
+  ——vlUnified 已覆盖；imageQualityFieldMapper 若 ES 字段仍有消费方，退化为 tagger
+  模板（aesthetic_score）替代
+
+- [ ] dam-ai 增加 `classic/` engine：按模型格式配 loader（TF-Keras saved_model / ONNX 等），
+      统一接口 `/v1/classify`（image + task → scores），registry 同样 path 寻址 + 离线加载；
+      首批只注册 color(61624780 含 PQ) + palette(39559380)，输出字段对齐现有
+      （hexColors/opqCode），对照验收新旧一致
 - [ ] 颜色搜索专项回归：qColorsInfo → 拼色图 → opqCode → ES colorCodes top10 切换前后一致
-- [ ] 人脸/人体部位：peopleNum 字段当前由 VL（vlUnifiedFieldMapper）+ BodyPart 双路出，
-      确认 VL 路径全覆盖后可淘汰 bodyPart/faceOpq 依赖（独立验收项）
+- [ ] Phase 4.7 扩充：死依赖清理范围含 nsfw/quality/people/faceOpq/bodyPart 的
+      HttpModelInfer 实例与 mapper 挂载（先确认 ES 消费字段再删）
 
 ## 四、明确不做（边界）
 
