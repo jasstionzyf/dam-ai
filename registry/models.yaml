@@ -1,0 +1,63 @@
+# dam-ai model registry — single addressing entry: model name -> local path (mount /models).
+# Loader values: sentence_transformers | open_clip. Paths are container mount points, read-only.
+# Preprocess (resolution/mean/std/pooling) is locked per model — do not change without re-embedding.
+models:
+  - name: qwen3-vl-embedding-2b
+    path: /models/qwen3-vl-embedding-2b
+    loader: sentence_transformers
+    engine: transformers
+    dims: 2048
+    modalities: [image, text]
+    normalized: true
+    description: Qwen3-VL-Embedding-2B multimodal embeddings (ST; on gpu7/gpu0 model source dir)
+    weights: ""
+    preprocess:
+      resolution: 768
+      mean: [0.5, 0.5, 0.5]
+      std: [0.5, 0.5, 0.5]
+      pooling: last_token
+
+  - name: siglip2-so400m
+    path: /models/siglip2-so400m
+    loader: open_clip
+    engine: open_clip
+    dims: 1152
+    modalities: [image, text]
+    normalized: true
+    description: SigLIP2 so400m image+text encoder (open_clip)
+    weights: open_clip_pytorch_model.bin
+    preprocess:
+      resolution: 384
+      mean: [0.5, 0.5, 0.5]
+      std: [0.5, 0.5, 0.5]
+      pooling: cls
+
+  - name: clip-vit-l14
+    path: /models/clip-vit-l14
+    loader: open_clip
+    engine: open_clip
+    dims: 768
+    modalities: [image, text]
+    normalized: true
+    description: CLIP ViT-L/14 (open_clip; local ViT-L-14.pt)
+    weights: ViT-L-14.pt
+    preprocess:
+      resolution: 224
+      mean: [0.48145466, 0.4578275, 0.40821073]
+      std: [0.26862954, 0.26130258, 0.27577711]
+      pooling: cls
+
+  - name: dinov3-vitb16
+    path: /models/dinov3-vitb16
+    loader: open_clip
+    engine: open_clip
+    dims: 768
+    modalities: [image]
+    normalized: true
+    description: DINOv3 ViT-B/16 image-only encoder (open_clip)
+    weights: ""
+    preprocess:
+      resolution: 224
+      mean: [0.485, 0.456, 0.406]
+      std: [0.229, 0.224, 0.225]
+      pooling: cls
