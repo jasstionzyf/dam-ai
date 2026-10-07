@@ -21,6 +21,7 @@ dam-ai is the AI engine of the open-source DAM stack. Two independent inference 
 | `GET /v1/models` | Model registry self-description: dims, modalities, normalized |
 | `POST /v1/tagging` | Batch tagging with versioned task templates (prompt + json schema + inference params) |
 | `POST /v1/chat/completions` | Pass-through to vLLM (escape hatch, OpenAI-compatible) |
+| `POST /v1/classify` | Classical CV models (color features / palette) via image + task |
 | `GET /healthz` `GET /readyz` | Liveness / model-loaded readiness |
 
 Design principles:
