@@ -162,6 +162,39 @@ task_version 随响应返回写回资产记录（可定位重刷范围）；评�
 - CI：单测（registry 校验 / API schema）+ 集成测试（小模型 CPU smoke）
 - 发布 v0.1.0
 
+### Phase 5 — souJpg 接入整合（已裁决：走 serviceName2UrlInfo LB，不平移 HttpModelInfer）
+
+souJpg 侧已有现成基建，dam-ai 接入零新增路由代码：
+
+1. **LB 复用**：`souJpg/comm/loadBalancer.py`（@singleton，线程级 least-used +
+   FAILURE_COOLDOWN 30s + timeout 120s + retry 2），现役调用方 vlUnifiedFieldMapper /
+   bizTagLabeler（qwenVL-chat 已在跑）。baseConf 增加三个 serviceName：
+
+   ```yaml
+   serviceName2UrlInfo:
+     damai-embed:    ["http://gpu0.dev.yufei.com:8090/v1"]
+     damai-tag:      ["http://gpu0.dev.yufei.com:8090/v1"]
+     damai-classify: ["http://gpu0.dev.yufei.com:8090/v1"]
+   ```
+
+   多机房 = URL 列表多列各机房实例；DamAiClient 照 vlUnified 的 `self._lb.call(...)`
+   模式实现（embeddings/tagging/classify 三方法 + OpenAI SDK 反序列化）。
+2. **HttpModelInfer 不平移、不改造**：其能力拆解——URL 池/least-used/失败排除重试
+   → LB 全覆盖；modelId+modelInferUrl 表（MongoDB）寻址 → dam-ai registry model 名 +
+   baseConf 配置取代；userLevel 分级 → 暂无需求不带入。Phase 4.x 清理时整体删除。
+3. **region 容错：死特性不平移**。HttpModelInfer 的 requestRegion 过滤
+   （:134-146）只有 nsfwFieldMapper 传过且 URL 池无 region 字段实例，从未生效。
+   现网 gpu0/gpu7 同内网无多机房现实；真到多机房时在 LB URL 条目加 region 权重
+   （软降级全池，优于 HttpModelInfer 的硬过滤拒绝服务）。
+4. **切换面**（gcf 配置即可切换，不动 mapper 内部逻辑）：
+   - vlUnifiedFieldMapper：qwenVL-chat → damai-tag（模板对齐现 prompt）
+   - ImageEmbeddingFieldMapper / 语义搜索 CLIP(57490277) → damai-embed
+   - QwenVLClient（translate/caption/describe/embed）→ DamAiClient
+   - colorFieldMapper/colorPaletteFieldMapper(61624780/39559380) → damai-classify
+   - tokenizer(8207) 不动（非 dam-ai 范畴）
+5. 验收：LB 三 serviceName 冒烟；单 URL 故障注入 → cooldown 生效切到备用；
+   全链路回归（语义搜索/以图搜图/userUpload 管线/颜色搜索）通过后下线 tools 容器
+
 ## 四、明确不做（边界）
 
 - 不做编排/队列/定时（DAM 主项目管线负责，dam-ai 是无状态推理服务）
