@@ -37,7 +37,7 @@ Design principles:
 ## Deployment
 
 Container + docker compose only (no host venv services). One compose service per
-model; GPUs optional per service. See [docs/plan.md](docs/plan.md) for the design spec.
+model; GPUs optional per service.
 
 ## License
 

@@ -1,4 +1,4 @@
-# dam-ai 设计规范（Design & Implementation Plan）
+# dam-ai 设计规范（Design Spec）
 
 > dam-ai = 开源 DAM 栈的官方 AI 推理组件：独立开源项目，不含任何业务耦合。
 > 仓库：github.com/jasstionzyf/dam-ai
@@ -9,7 +9,7 @@
 dam-ai (monorepo)
 ├── tagger/      → vLLM engine：生成式多模态打标（吞吐红利 + 新模型跟进快）
 ├── embedder/    → transformers engine（ST + open_clip 双 loader：覆盖 Qwen3-VL-Emb / SigLIP2 / CLIP / DINOv3）
-├── classic/     → 传统视觉模型 engine（TF-Keras / ONNX 等格式：颜色 / 质量 / NSFW 打分）
+├── classic/     → 传统 CV 算法 engine（numpy/skimage/faiss：颜色直方图 / 调色板 / PQ 编码，无模型权重，CPU 可跑）
 ├── registry/    → 模型注册表 + 任务模板注册表
 ├── server/      → FastAPI 统一 API 层（各 engine 独立进程、独立 GPU 配额）
 └── deploy/      → 每模型一个 compose service
@@ -139,20 +139,22 @@ task_version 随响应返回写回资产记录（可定位重刷范围）；评�
 - 首批模板：image_caption_metadata / nsfw_check / translate（通用打标需求，无业务耦合）
 - 验收：单图/多图/批量混合失败场景；task_version 回带
 
-### Phase 3 — classic engine（传统视觉分类器/检测器）
-- `classic/` engine：按模型格式配 loader（TF-Keras saved_model / ONNX / ultralytics 等），
-  统一接口 `/v1/classify`（image + task → scores），registry 同样 path 寻址 + 离线加载
-- 首批注册（均为通用 DAM 需求）：
+### Phase 3 — classic engine（传统 CV 算法引擎）
+- `classic/` engine：**纯算法、无模型权重、CPU 可跑**——从 tools 的 mcsearch/ 移植
+  （colorModel.py ColorModelV2：HSV 调色板 + LAB 空间平滑直方图；imageColorPalette.py
+  ImageColorPalette：faiss.Kmeans 像素聚类；PQ 码本编码），统一接口 `/v1/classify`
+  （image + task → codes/scores）；PQ 码本文件随 registry path 寻址，算法常驻内存
+- 首批注册（均为通用 DAM 需求，NSFW/质量/people 已由 VL 路径覆盖不迁）：
 
 | 能力 | 输出字段 | 说明 |
 |---|---|---|
-| 主色提取 + 颜色 PQ | hexColors / opqCode | 颜色搜索基础数据 |
+| 主色提取 + 颜色 PQ | features / opqCode | 颜色搜索基础数据（含 negativeSpace） |
 | 调色板提取 | hexColors | 与上者合并为一个 color 服务 |
-| NSFW 打分 | nsfw_score | 内容安全 |
-| 图像质量分 | qualityScore | 质量筛选 |
 
-- 偏业务 + 隐私合规敏感的能力（人脸特征、人体部位检测）暂不纳入 classic engine
-- 验收：各能力输出字段与既有实现逐项对齐；颜色搜索链路（拼色图 → opqCode → 索引）切换前后一致
+- 颜色能力无 GPU 依赖，正好支撑「无 GPU 退化模式」：DAM 用户 CPU 即可用颜色搜索
+- 偏业务 + 隐私合规敏感的能力（人脸特征、人体部位检测）不纳入，随 tools 淘汰
+- 验收：输出字段与既有实现逐项对齐（features/hexColors/opqCode 逐字节一致）；
+  颜色搜索链路（qColorsInfo 拼色图 → opqCode → ES colorCodes top10）切换前后一致
 
 ### Phase 4 — 开源化打磨
 - docker compose 一键起（无 GPU 退化模式：API 返回 model_unavailable 而非崩溃）
