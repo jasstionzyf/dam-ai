@@ -3,12 +3,9 @@
 AI inference layer for open-source DAM (Digital Asset Management):
 **multimodal tagging** (vLLM) + **multimodal embeddings** (transformers), unified OpenAI-compatible API.
 
-> Status: design phase. See [docs/plan.md](docs/plan.md) for the implementation plan.
-
 ## Positioning
 
-dam-ai is the AI engine of the open-source DAM stack (separate project from any
-industry-specific deployment). Two independent inference engines behind one API:
+dam-ai is the AI engine of the open-source DAM stack. Two independent inference engines behind one API:
 
 - **tagger** — generative multimodal LLM via vLLM: captioning, metadata extraction,
   NSFW/aesthetic checks, structured outputs.
@@ -40,7 +37,7 @@ Design principles:
 ## Deployment
 
 Container + docker compose only (no host venv services). One compose service per
-model; GPUs optional per service.
+model; GPUs optional per service. See [docs/plan.md](docs/plan.md) for the design spec.
 
 ## License
 
