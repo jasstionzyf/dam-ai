@@ -113,7 +113,8 @@ task_version 随响应返回写回图片记录（可定位重刷范围）；评�
 - [ ] .gitignore / pyproject.toml / CI（lint+test）
 
 ### Phase 1 — embedder MVP（transformers engine）
-- [ ] model registry：name → loader(ST|open_clip) / dims / modalities / 预处理(resolution, mean-std, pooling)
+- [ ] model registry：name → path(/models 本地目录) / loader(ST|open_clip) / dims / modalities / 预处理(resolution, mean-std, pooling)
+- [ ] 离线加载规范落地：HF_HUB_OFFLINE=1 + TRANSFORMERS_OFFLINE=1 + compose 挂载 /models:ro（见「模型离线加载规范」节）
 - [ ] 首批 4 模型注册：qwen3-vl-embedding-2b(ST) / siglip2-so400m(open_clip) / clip-vit-l14(open_clip) / dinov3-vitb16(open_clip)
 - [ ] /v1/embeddings：文本 100% OpenAI 兼容 + image_url content part 扩展 + float16 选项
 - [ ] /v1/models / healthz / readyz
@@ -139,6 +140,31 @@ task_version 随响应返回写回图片记录（可定位重刷范围）；评�
 - 不做向量索引/检索（ES/OpenSearch 侧职责，embedder 只出向量）
 - 不做计费/多租户（enterprise 层，独立私有仓）
 - 不做模型训练/微调（只推理）
+
+## 四·五、模型离线加载规范（已裁决：档 1 裸目录方案）
+
+私有网络不可访问 HuggingFace Hub 时的标准做法——**挂载本地模型目录 + registry 寻址 +
+硬禁 hub 访问**，不引入自建镜像层：
+
+1. **裸目录格式**：每个模型一个普通目录（config.json + model.safetensors + tokenizer 等
+   完整文件），提前在有网环境下载/转换好。兼容 ST 格式（modules.json）与 open_clip 格式，
+   即现 soujpg /data1/.../models/ 的组织方式，可直接平移。
+2. **registry 是唯一寻址入口**：API `model` 名 → `path`（容器内约定挂载点 `/models`）
+   只在 registry/models.yaml 一处映射；代码只用 `from_pretrained(local_path)`。
+3. **compose 挂载 + 离线环境变量（必配）**：
+
+   ```yaml
+   services:
+     embedder:
+       volumes: ["/data1/models:/models:ro"]
+       environment:
+         - HF_HUB_OFFLINE=1       # 禁一切 hub 访问，离线加载不超时重试
+         - TRANSFORMERS_OFFLINE=1
+   ```
+
+4. HF cache 快照格式（repo-id 引用）天然兼容（HF_HUB_OFFLINE 下走 snapshots 解析），
+   不需要额外代码；自建 hub 镜像（HF_ENDPOINT/ModelScope）不采用，文档提及即可。
+5. 模型目录是普通文件：可 rsync/tar 归档（归档盘路径写回 registry 注释）。
 
 ## 五、与 soujpg 的关系（单向依赖）
 
