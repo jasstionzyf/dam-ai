@@ -18,7 +18,7 @@ dam-ai (monorepo)
 裁决依据（来自原型实测）：
 - 打标是生成式任务，vLLM paged attention + continuous batching 有数量级吞吐优势；结构化输出用 vLLM guided decoding（json_schema），不自己写正则解析。
 - embedding 模型生态散（ST 格式 / open_clip 格式），vLLM 覆盖不全（DINOv3 不支持、SigLIP2 pooling 不可控、last-token pooling 要自己对齐）；特征抽取吞吐瓶颈在图片不在模型，vLLM 红利吃不到 → transformers 路线。
-- 传统视觉分类/检测模型（TF-Keras/ONNX/detectron 格式）上述两个 loader 都不吃，单列 classic engine。
+- 传统 CV 算法（颜色直方图/调色板/PQ 编码，numpy/skimage/faiss）不是深度模型、无权重文件，单列 classic engine（CPU 可跑，支撑无 GPU 退化模式）。
 - 不塞 TEI：TEI 只管文本，多模态图像塔不吃。
 
 ## 二、HTTP 接口标准（已定）
