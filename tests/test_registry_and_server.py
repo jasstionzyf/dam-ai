@@ -144,8 +144,12 @@ def test_bad_registry_refuses_startup(tmp_path):
     env = {"PATH": "/usr/bin:/bin", "DAMAI_REGISTRY": str(p)}
     env.update({k: v for k, v in __import__("os").environ.items()
                 if k.startswith(("PYTHON", "UV_", "LD_"))})
+    # venv python when present (dev boxes); plain sys.executable on CI where
+    # the repo is not provisioned with .venv.
+    venv_python = ROOT / ".venv" / "bin" / "python"
+    interpreter = str(venv_python) if venv_python.exists() else sys.executable
     r = subprocess.run(
-        [str(ROOT / ".venv" / "bin" / "python"), "-c",
+        [interpreter, "-c",
          "import sys; sys.path.insert(0, '.'); import server.app"],
         cwd=ROOT, env=env, capture_output=True, text=True, timeout=60,
     )
