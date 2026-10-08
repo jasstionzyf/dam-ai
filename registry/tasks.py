@@ -157,8 +157,9 @@ def _parse_template(raw: Any, source: str, filename: str) -> TaskTemplate:
     _require(isinstance(images, dict) and set(images) == {"min", "max"}
              and all(isinstance(images[k], int) and not isinstance(images[k], bool)
                      for k in ("min", "max"))
-             and 1 <= images["min"] <= images["max"],
-             f"{source}/{filename}: images must be {{min, max}} with 1 <= min <= max")
+             and 0 <= images["min"] <= images["max"],
+             f"{source}/{filename}: images must be {{min, max}} with 0 <= min <= max "
+             f"(min 0 = image optional)")
 
     prompt = raw["prompt"]
     _require(isinstance(prompt, str) and bool(prompt.strip()),

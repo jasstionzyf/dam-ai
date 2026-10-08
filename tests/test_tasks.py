@@ -70,7 +70,7 @@ def test_builtin_templates_fields_complete():
         assert t.name == name
         assert isinstance(t.version, int) and t.version >= 1
         assert t.model_default and t.model_default in t.allowed_models
-        assert set(t.images) == {"min", "max"} and 1 <= t.images["min"] <= t.images["max"]
+        assert set(t.images) == {"min", "max"} and 0 <= t.images["min"] <= t.images["max"]
         assert t.prompt.strip()
         assert isinstance(t.schema, dict) and t.schema.get("type") == "object"
         assert isinstance(t.params, dict) and t.params

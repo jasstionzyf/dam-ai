@@ -172,8 +172,24 @@ def test_chat_missing_model_400(client):
     assert r.status_code == 400
 
 
-def test_tagging_is_501_stub(client):
-    assert client.post("/v1/tagging", json={"task": "x"}).status_code == 501
+def test_tagging_route_serves_batch(client, fake_vllm):
+    """T5: /v1/tagging is the task-template batch endpoint (was a 501 stub in T3).
+
+    This module's fake echoes content="ok", which violates the nsfw_check
+    output schema on purpose — the client-side schema gate must mark the item
+    output_invalid (proves the T5 endpoint validates model output).
+    """
+    r = client.post("/v1/tagging", json={"task": "nsfw_check", "inputs": [
+        {"id": "t3-check", "image_url": "http://x/a.jpg"}]})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["task"] == "nsfw_check"
+    assert body["results"][0]["id"] == "t3-check"
+    assert body["results"][0]["status"] == "error"
+    assert body["results"][0]["code"] == "output_invalid"
+    # guided decoding relayed: response_format reaches vLLM untouched
+    sent = fake_vllm["seen"]["last_body"]
+    assert sent["response_format"]["type"] == "json_schema"
 
 
 # ----------------------------------------------------- deployment consistency

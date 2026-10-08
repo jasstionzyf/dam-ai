@@ -3,10 +3,10 @@
 Standalone FastAPI app that fronts a co-located vLLM OpenAI server
 (127.0.0.1:<port>, launched alongside by deploy/compose/tagger.yml).
 
-Scope (T3): /v1/chat/completions pass-through (100% OpenAI request/response,
+Scope (T3/T5): /v1/chat/completions pass-through (100% OpenAI request/response,
 guided decoding via response_format), /v1/models aggregated view,
-/healthz /readyz probing the vLLM backend. Task-template fan-out
-(/v1/tagging) is a later card; this endpoint intentionally 501s here.
+/healthz /readyz probing the vLLM backend, and the /v1/tagging batch
+task-template endpoint (tagger/tagging.py, mounted at import).
 """
 
 from __future__ import annotations
@@ -166,15 +166,21 @@ async def chat_completions(request: Request) -> Any:
     return JSONResponse(status_code=resp.status_code, content=_safe_json(content))
 
 
-# ----------------------------------------------------------- /v1/tagging (later)
-@app.post("/v1/tagging")
-def tagging_not_yet() -> JSONResponse:
-    """Task-template batch endpoint lands with the template registry card.
+# ----------------------------------------------------------- /v1/tagging
+try:
+    from tagger.tagging import tagging as _tagging_handler
+except ImportError as e:  # pragma: no cover - jsonschema ships with the vllm env
+    _TAGGING_IMPORT_ERROR = str(e)
 
-    T3 scope is the vLLM plumbing only; this stub keeps the route owned by the
-    tagger service so upstream LB wiring can already target it.
-    """
-    return JSONResponse(
-        status_code=501,
-        content={"error": {"message": "/v1/tagging not implemented yet (later card)"}},
-    )
+    @app.post("/v1/tagging")
+    def tagging_unavailable() -> JSONResponse:
+        """Degrade instead of crash when the tagging deps are missing."""
+        return JSONResponse(
+            status_code=503,
+            content={"error": {
+                "message": f"/v1/tagging unavailable: {_TAGGING_IMPORT_ERROR}",
+                "type": "server_error", "code": "model_unavailable"}},
+        )
+else:
+    app.add_api_route("/v1/tagging", _tagging_handler, methods=["POST"],
+                      name="tagging")

@@ -50,7 +50,9 @@ deploy/
 - `GET /readyz` — 200 once vLLM answers /v1/models, 503 while loading
 - `GET /v1/models` — vLLM served models, annotated
 - `POST /v1/chat/completions` — 100% OpenAI pass-through (stream + response_format/json_schema included)
-- `POST /v1/tagging` — 501 (template registry card lands later)
+- `POST /v1/tagging` — batch task-template execution (T5): `{task|prompt+schema,
+  inputs[{id, image_url|images[]}], model?, task_params?, params?, concurrency?}`;
+  items get per-item status + verbatim id + retry isolation; hard cap 64 inputs
 
 ## vLLM parameters (gpu7:4080, ~4.2GB shared with dinov2/siglip2/tools; qwen3.5-4b bf16 ~8.1GB)
 
