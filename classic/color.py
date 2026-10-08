@@ -225,9 +225,20 @@ class ColorModelV2:
 
 
 class ColorPaletteModel:
-    """Dominant colors via faiss.Kmeans on RGB (tools ColorPaletteModel)."""
+    """Dominant colors via faiss.Kmeans on RGB (tools ColorPaletteModel).
 
-    def __init__(self, colors_num: int = 6, niter: int = 50):
+    Byte-compat notes vs the RUNNING gpu7 tools container (commit 289c2b0,
+    not the stale local copy in /data/projects/model-infer-api):
+      - niter = 10 (was reduced from 50; 3D pixel clustering converges early)
+      - assignment is passed to np.unique AS THE FULL (D, I) TUPLE returned by
+        kmeans.assign(), exactly like the production code. np.unique flattens
+        it, so distances mix into the value set: some centroid indices get no
+        entry in hex_count_map (count falls back to 1) and counts can exceed
+        100. This is intentional-to-parity: reproducing the quirk is what
+        keeps hexColors byte-identical with production ES colorPalette data.
+    """
+
+    def __init__(self, colors_num: int = 6, niter: int = 10):
         self.colors_num = colors_num
         self.niter = niter
 
@@ -247,11 +258,15 @@ class ColorPaletteModel:
         kmeans = faiss.Kmeans(3, k, niter=self.niter, verbose=False)
         kmeans.train(pixels)
         centroids = kmeans.centroids
-        assignment = kmeans.assign(pixels)[1]  # (D, I) tuple; np.unique acts on I
+        assignment = kmeans.assign(pixels)  # (D, I) tuple, passed whole (see docstring)
 
         values, counts = np.unique(assignment, return_counts=True)
+        # keys stay RAW (mix of centroid indices and distance floats) exactly
+        # like tools: hexCountMap[key] lookup below uses the same raw ints, and
+        # only some of them hit (others fall back to 1) — int() truncation here
+        # would merge distance keys onto index keys and corrupt counts.
         hex_count_map = {
-            int(key): int(value) / total_num * 100 + 1 for key, value in zip(values, counts)
+            key: int(value) / total_num * 100 + 1 for key, value in zip(values, counts)
         }
 
         hex_colors = []
@@ -284,10 +299,16 @@ class OpqQuantizer:
         self.vt_model = faiss.read_VectorTransform(opq_file)
         self.pq_model = faiss.read_ProductQuantizer(pq_file)
 
-    def quantize(self, features: np.ndarray) -> list[int]:
-        """(1, 81) float32 -> [int, int, int] (tools OPQFeaturesQuantizer.quantize,
-        needTransformer=True)."""
+    def quantize(self, features: np.ndarray) -> str:
+        """(1, 81) float32 -> tools opqCode string 'code_0 code_1 code_2'.
+
+        tools OPQFeaturesQuantizer.quantize builds per-vector strings
+        'code_index' joined by spaces (BitstringReader per subspace); the
+        string lands verbatim in ES colorCodes, so format is part of the
+        byte-compat contract.
+        """
         vectors = self.vt_model.apply_py(np.ascontiguousarray(features, dtype="float32"))
         codes = self.pq_model.compute_codes(vectors)
         reader = faiss.BitstringReader(faiss.swig_ptr(codes[0]), codes.shape[1])
-        return [reader.read(self.sub_space_bits) for _ in range(self.sub_space_num)]
+        parts = [reader.read(self.sub_space_bits) for _ in range(self.sub_space_num)]
+        return " ".join(f"{code}_{i}" for i, code in enumerate(parts))

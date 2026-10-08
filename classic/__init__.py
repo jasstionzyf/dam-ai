@@ -4,8 +4,9 @@ ColorModelV2  : HSV palette -> LAB smoothed histogram -> 81-dim color features
                 (source: model-infer-api vcgImageAI/subProjects/mcsearch/colorModel.py)
 ColorPalette  : faiss.Kmeans dominant colors -> [(hex, weight)] (source: same dir,
                 imageColorPalette.py / ColorPaletteModel — identical implementation)
-OPQQuantizer  : OPQ rotation + PQ encode of the 81-dim features -> int codes
-                (source: vcgImageAI/subProjects/featuresRetrive/quantizers.py,
+OPQQuantizer  : OPQ rotation + PQ encode of the 81-dim features -> tools
+                opqCode string 'code_0 code_1 code_2' (source:
+                vcgImageAI/subProjects/featuresRetrive/quantizers.py,
                 OPQFeaturesQuantizer.quantize(needTransformer=True))
 
 PQ codebooks: shipped verbatim from the tools container

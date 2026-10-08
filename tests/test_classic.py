@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import importlib.util
 import pathlib
+import sys
 
 import pytest
 
@@ -27,6 +28,8 @@ def test_tasks_registry_shape():
     path = ROOT / "classic" / "engine.py"
     spec = importlib.util.spec_from_file_location("classic_engine_src", path)
     mod = importlib.util.module_from_spec(spec)
+    # py3.11 dataclasses resolve cls.__module__ via sys.modules at class creation
+    sys.modules[spec.name] = mod
     try:
         spec.loader.exec_module(mod)
     except ImportError:
@@ -39,7 +42,8 @@ def test_tasks_registry_shape():
 def test_rgb2hex_variants():
     from classic.color import rgb2hex, rgb2hex1
 
-    assert rgb2hex([1.0, 0.0, 0.5]) == "#ff007f"
+    # np.round uses banker's rounding at .5 (127.5 -> 128): tools-identical
+    assert rgb2hex([1.0, 0.0, 0.5]) == "#ff0080"
     assert rgb2hex1([255.0, 0.0, 127.4]) == "#ff007f"
 
 
@@ -58,7 +62,7 @@ def test_resize_image_bytes_long_short_side_and_small_keep():
         return buf.getvalue()
 
     out = resize_image_bytes(png_bytes(200, 100), 112)  # short side target
-    assert Image.open(io.BytesIO(out)).size == (112, 56)
+    assert Image.open(io.BytesIO(out)).size == (224, 112)
     out = resize_image_bytes(png_bytes(200, 100), 400, inverse=True)  # long side target
     assert Image.open(io.BytesIO(out)).size == (400, 200)
     small = resize_image_bytes(png_bytes(50, 30), 112, if_smaller_no_resize=True)
@@ -81,8 +85,11 @@ def test_color_engine_end_to_end():
 
     color = classify_one("color", b)
     assert len(color["features"]) == 81
-    assert len(color["opqCode"]) == 3
-    assert all(isinstance(v, int) for v in color["opqCode"])
+    # tools opqCode format: space-joined 'code_index' string (ES colorCodes verbatim)
+    parts = color["opqCode"].split()
+    assert len(parts) == 3
+    assert all(p.split("_")[1] == str(i) for i, p in enumerate(parts))
+    assert all(int(p.split("_")[0]) >= 0 for p in parts)
 
     palette = classify_one("colorPalette", b)
     assert len(palette["hexColors"]) == 6
@@ -100,4 +107,6 @@ def test_quantizer_uses_shipped_codebooks():
     q = OpqQuantizer(str(ROOT / "models" / "color"))
     features = np.zeros((1, 81), dtype="float32")
     code = q.quantize(features)
-    assert len(code) == 3 and all(isinstance(v, int) for v in code)
+    parts = code.split()
+    assert len(parts) == 3
+    assert all(p.split("_")[1] == str(i) for i, p in enumerate(parts))

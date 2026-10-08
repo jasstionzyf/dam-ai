@@ -106,6 +106,7 @@ def classify_one(task: str, image_bytes: bytes) -> dict:
             "opqCode": opq_code,
             "dim": FEATURE_DIM,
         }
+
     if task == "colorPalette":
         return _palette_model().infer(image_bytes)
     raise KeyError(task)
