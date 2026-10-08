@@ -208,10 +208,14 @@ def _norm_and_collect(feats, normalized: bool, np, torch) -> list[list[float]]:
 
 
 def _maybe_half(vec: "Any", dtype: str) -> list[list[float]]:
-    if dtype == "float16":
-        np = vendors.np_mod()
-        return np.asarray(vec, dtype=np.float16).astype(np.float32).tolist()
     np = vendors.np_mod()
+    if dtype == "float16":
+        # Quantise to half precision AND emit the shortest decimal form (~3.3
+        # significant digits of float16). Casting half back to float32 and
+        # tolist() would print all 17 digits again and erase the saving, so
+        # the JSON payload would stay ~the same size as float (acceptance A5).
+        rows = np.atleast_2d(np.asarray(vec, dtype=np.float16))
+        return [[float(f"{float(x):.5g}") for x in row] for row in rows]
     return np.asarray(vec, dtype=np.float32).tolist()
 
 

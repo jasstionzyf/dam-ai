@@ -11,6 +11,7 @@ import base64
 import importlib
 import pathlib
 import sys
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -308,3 +309,39 @@ def test_t1_server_imports_without_torch(monkeypatch):
                 if m.startswith(("embedder", "server")):
                     del sys.modules[m]
             import server.app  # noqa: F401 — restore real modules for other tests
+
+
+def test_base64_encoding_format_roundtrip():
+    """OpenAI SDK default (encoding_format=base64) must decode to the float vector."""
+    import base64 as b64
+    import struct
+
+    from server.embeddings import _float_list_to_base64
+
+    vec = [0.25, -1.0, 3.5]
+    raw = b64.b64decode(_float_list_to_base64(vec))
+    assert struct.unpack("<3f", raw) == tuple(vec)
+
+
+def test_embeddings_accepts_base64_encoding_format():
+    from unittest.mock import patch as ui_patch
+
+    from server import embeddings as emb_mod
+
+    class FakeMgr:
+        registry = {"clip-vit-l14": SimpleNamespace(dims=2)}
+
+        def parse_and_validate(self, model, raw):
+            return [{"text": t} for t in raw]
+
+        def embed(self, model, inputs, dtype):
+            return [[1.0, 0.0]]
+
+    with ui_patch.object(emb_mod.manager_module, "manager", FakeMgr()):
+        import asyncio
+
+        r = asyncio.get_event_loop().run_until_complete(
+            emb_mod.embeddings({"model": "clip-vit-l14", "input": "hi",
+                                "encoding_format": "base64"}))
+    emb = r["data"][0]["embedding"]
+    assert isinstance(emb, str) and len(base64.b64decode(emb)) == 8

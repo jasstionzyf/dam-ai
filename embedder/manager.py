@@ -36,11 +36,18 @@ class Manager:
         self._lock = threading.Lock()
         self._sem = threading.BoundedSemaphore(2)  # max concurrent forwards (OOM guard)
         self._executor = ThreadPoolExecutor(max_workers=1)  # sequential model loads
+        self._started = False
         self._t0 = time.time()
 
     # ---------- lifecycle ----------
 
     def start(self) -> None:
+        # Idempotent: init_manager() already kicks loading at import time and
+        # the uvicorn startup event calls start() again — a second submission
+        # would load every model twice and OOM the GPU (seen live on gpu7).
+        if self._started:
+            return
+        self._started = True
         for name in self.registry:
             self._executor.submit(self._load_one, name)
 

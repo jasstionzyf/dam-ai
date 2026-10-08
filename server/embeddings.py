@@ -21,6 +21,14 @@ def openai_error(status: int, message: str, err_type: str,
         "error": {"message": message, "type": err_type, "code": code}})
 
 
+def _float_list_to_base64(vec: list[float]) -> str:
+    """OpenAI base64 encoding_format: little-endian float32 packed and base64'd."""
+    import base64
+    import struct
+
+    return base64.b64encode(struct.pack(f"<{len(vec)}f", *vec)).decode()
+
+
 def _manager():
     return manager_module.manager
 
@@ -34,7 +42,9 @@ async def embeddings(request_body: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(model, str) or not model:
         raise openai_error(400, "'model' is required and must be a string", "invalid_request_error",
                            "invalid_model")
-    if encoding_format not in ("float", "float16"):
+    # OpenAI SDK (>=1.x) defaults to encoding_format=base64 — support it alongside
+    # float; float16 is a dam-ai extension (compact transport).
+    if encoding_format not in ("float", "float16", "base64"):
         raise openai_error(400, f"unsupported encoding_format: {encoding_format}",
                            "invalid_request_error", "invalid_encoding_format")
     if raw_inputs is None:
@@ -69,7 +79,11 @@ async def embeddings(request_body: dict[str, Any]) -> dict[str, Any]:
         raise openai_error(503, str(e), "model_error", "model_not_ready") from None
 
     dims = _manager().registry[model].dims
-    data = [{"object": "embedding", "index": i, "embedding": v} for i, v in enumerate(vectors)]
+    data = []
+    for i, v in enumerate(vectors):
+        item = {"object": "embedding", "index": i}
+        item["embedding"] = _float_list_to_base64(v) if encoding_format == "base64" else v
+        data.append(item)
     return {
         "object": "list",
         "data": data,

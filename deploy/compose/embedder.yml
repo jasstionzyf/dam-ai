@@ -16,6 +16,9 @@ services:
     environment:
       - NVIDIA_VISIBLE_DEVICES=0
       - DAMAI_REGISTRY=/app/dam-ai/registry/models.yaml
+      # offline model loading: bare directory mount + offline env (see PLAN.md)
+      - HF_HUB_OFFLINE=1
+      - TRANSFORMERS_OFFLINE=1
     deploy:
       resources:
         reservations:
