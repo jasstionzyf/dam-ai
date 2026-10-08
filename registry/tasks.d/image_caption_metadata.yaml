@@ -1,0 +1,44 @@
+# Built-in task template: image_caption_metadata
+# Generic stock-photo metadata captioning: title, description and keyword
+# payload for one image. model_default must exist in registry/models.yaml.
+name: image_caption_metadata
+version: 1
+model_default: qwen3.5-4b
+allowed_models: [qwen3.5-4b]
+images: {min: 1, max: 1}
+description: "Generate title/description/keyword payload for a stock photo."
+task_params:
+  - name: language
+    type: string
+    description: "Output language for title/description (e.g. en, zh)."
+    required: false
+    default: en
+  - name: max_keywords
+    type: number
+    description: "Upper bound of keywords to return."
+    required: false
+    default: 20
+prompt: |
+  You are a stock-photo metadata writer. Look at the image and produce
+  commercially useful metadata.
+
+  Write the title and description in language code "{{ task_params.language }}".
+  Provide at most {{ task_params.max_keywords }} keywords, ordered by relevance.
+
+  Return ONLY a JSON object matching the given schema.
+schema:
+  type: object
+  properties:
+    title:
+      type: string
+      minLength: 5
+    description:
+      type: string
+      minLength: 10
+    keywords:
+      type: array
+      items: {type: string}
+      minItems: 3
+  required: [title, description, keywords]
+  additionalProperties: false
+params: {temperature: 0.2, max_tokens: 1024}
