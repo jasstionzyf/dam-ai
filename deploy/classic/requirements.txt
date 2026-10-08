@@ -1,0 +1,12 @@
+# classic engine deps (port 8092, CPU-only). Versions pinned to the running
+# tools container (gpu7 tools, /data/apps/miniconda3/envs/sj, pip freeze
+# 2026-10-08) — see reports/t_62a5c1dd-dependency-parity.md:
+numpy==1.26.4
+scikit-image==0.24.0
+scikit-learn==1.5.2
+scipy==1.14.1
+faiss-cpu==1.9.0.post1
+pillow==11.0.0
+fastapi>=0.110
+httpx>=0.27
+uvicorn>=0.29

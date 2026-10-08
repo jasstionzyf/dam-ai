@@ -9,6 +9,7 @@ their state.
 from __future__ import annotations
 
 import os
+import sys
 import time
 from typing import Any
 
@@ -33,12 +34,16 @@ except (RegistryError, OSError) as e:  # bad yaml / bad entries / missing file a
 # Embedder engine is optional at import time (API tests / CI run without torch).
 # When deps are missing, /v1/embeddings reports model_error instead of crashing.
 # Model loading starts on the uvicorn startup event — importing this module
-# (e.g. unit tests) must NOT spawn GPU loads.
+# (e.g. unit tests) must NOT spawn GPU loads. Dedicated classic deployments
+# (deploy/compose/classic.yml) set DAMAI_EMBEDDER=0 to skip the manager.
 _manager = None
 try:
-    from embedder.manager import init_manager
+    if os.environ.get("DAMAI_EMBEDDER", "1") != "0":
+        from embedder.manager import init_manager
 
-    _manager = init_manager()
+        _manager = init_manager()
+    else:
+        _IMPORT_ERROR = "embedder disabled by DAMAI_EMBEDDER=0"
 except ImportError as e:
     _IMPORT_ERROR = str(e)
 except Exception as e:  # registry ok but manager init failed — refuse, it is a deployment bug
@@ -73,11 +78,14 @@ def healthz() -> dict[str, Any]:
 def readyz() -> JSONResponse:
     """Readiness: registry loaded (startup gate) + per-model embedder states."""
     if _manager is None:
+        classic_enabled = "classic.api" in sys.modules
         body: dict[str, Any] = {
-            "status": "degraded",
+            "status": "ok" if classic_enabled else "degraded",
             "registry_models": len(REGISTRY),
             "note": f"embedder unavailable: {_IMPORT_ERROR}",
         }
+        if classic_enabled:
+            body["engine"] = "classic (embedder not part of this deployment)"
         return JSONResponse(status_code=200, content=body)
     snap = _manager.snapshot()
     body = {
@@ -123,3 +131,17 @@ async def v1_embeddings(request: Request) -> JSONResponse:
                            "model_error", "model_not_ready")
     body = await request.json()
     return JSONResponse(await embeddings_handler(body))
+
+
+# --- classic engine (T6): /v1/classify (color tasks) ---
+# Optional at import time (CI/pytest run without faiss/skimage); when missing,
+# the route is absent and /healthz stays green.
+try:
+    from classic.api import classify as _classic_classify
+
+    @app.post("/v1/classify")
+    async def v1_classify(request: Request) -> JSONResponse:
+        return await _classic_classify(request)
+
+except ImportError:
+    pass

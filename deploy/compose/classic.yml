@@ -1,0 +1,39 @@
+# dam-ai classic engine — port 8092, CPU-only (no GPU reservation).
+# Eval mode: code mount + open-clip base image (tools-parity runtime already
+# inside). Production: build damai-classic:v0.1 via deploy/classic/Dockerfile
+# and drop the code mount.
+name: damai-classic
+
+services:
+  classic:
+    # damai-classic:v0.1 = damai-base:from-tools-20261008 (docker-export/import
+    # of the healthy 2024 tools container — open-clip:v0.1 layers are corrupted
+    # on gpu7: docker run exec fails with "cannot execute binary file" even for
+    # /bin/ls) + `pip install httpx` (only missing runtime dep of classic; the
+    # sj env already has fastapi/uvicorn/numpy1.26.4/skimage0.24.0/faiss-cpu
+    # 1.9.0.post1). See reports/t_62a5c1dd-dependency-parity.md.
+    image: damai-classic:v0.1
+    container_name: damai-classic
+    restart: unless-stopped
+    ports:
+      - "8092:8092"
+    environment:
+      DAMAI_ENGINE: classic
+      DAMAI_CLASSIC_MODEL_DIR: /app/models/color
+      PYTHONPATH: /app
+      # classic-only deployment: no /models mount, embedder manager off
+      DAMAI_EMBEDDER: "0"
+    volumes:
+      - /data/projects/dam-ai:/app:ro
+    command: ["/data/apps/miniconda3/envs/sj/bin/python", "-m", "classic.__main__"]
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fs http://127.0.0.1:8092/healthz || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
