@@ -70,13 +70,16 @@ async def embeddings(request_body: dict[str, Any]) -> dict[str, Any]:
     try:
         vectors = _manager().embed(model, parsed, encoding_format)
     except ModelNotReadyError as e:
+        # Degraded mode (T9): backend unavailable (still loading, or failed to
+        # load — missing engine deps / bad weights) -> model_unavailable, never
+        # a crash. type distinguishes retryable (loading) from permanent (error).
         raise openai_error(
             503, f"model {model} is not ready (state={e.state}"
                  f"{f', error: {e.error}' if e.error else ''}); retry later",
             "service_unavailable" if e.state == "loading" else "model_error",
-            "model_not_ready") from None
+            "model_unavailable") from None
     except RuntimeError as e:  # loader-level failure (missing deps, etc.)
-        raise openai_error(503, str(e), "model_error", "model_not_ready") from None
+        raise openai_error(503, str(e), "model_error", "model_unavailable") from None
 
     dims = _manager().registry[model].dims
     data = []

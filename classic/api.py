@@ -62,7 +62,11 @@ async def classify(request: "Request") -> "JSONResponse":
     from fastapi.responses import JSONResponse
 
     if _ENGINE_IMPORT_ERROR:
-        raise HTTPException(503, f"classic engine unavailable: {_ENGINE_IMPORT_ERROR}")
+        # Degraded mode (Phase 4): dict detail with "error" key passes verbatim
+        # through the app-level handler -> OpenAI-style 503 model_unavailable.
+        raise HTTPException(503, detail={"error": {
+            "message": f"classic engine unavailable: {_ENGINE_IMPORT_ERROR}",
+            "type": "model_error", "code": "model_unavailable"}})
 
     try:
         body = await request.json()

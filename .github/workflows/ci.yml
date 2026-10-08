@@ -14,14 +14,27 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+          cache: pip
 
-      - name: Install ruff
-        run: pip install ruff
+      - name: Install test deps
+        # API-layer test deps only — torch/faiss/skimage stay out (CI is the
+        # CPU-only box; engine suites skip themselves via importorskip /
+        # _HAS_ENGINE_DEPS, exactly the degraded-mode shape T9 pins).
+        run: pip install ruff pytest fastapi uvicorn httpx jinja2 jsonschema pyyaml
 
       - name: Lint
         run: ruff check .
 
       - name: Run tests
+        run: pytest -v
+
+      - name: Compose config validates
+        # Root compose must parse and render as one project (profiles off:
+        # classic-only = the degraded-mode deployment shape).
         run: |
-          pip install pytest
-          pytest -v
+          python - <<'EOF'
+          import yaml
+          doc = yaml.safe_load(open("docker-compose.yml"))
+          assert set(doc["services"]) == {"classic", "embedder", "tagger"}, doc["services"].keys()
+          print("compose yaml ok:", ", ".join(sorted(doc["services"])))
+          EOF

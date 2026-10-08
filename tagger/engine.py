@@ -179,7 +179,7 @@ except ImportError as e:  # pragma: no cover - jsonschema ships with the vllm en
             status_code=503,
             content={"error": {
                 "message": f"/v1/tagging unavailable: {_TAGGING_IMPORT_ERROR}",
-                "type": "server_error", "code": "model_unavailable"}},
+                "type": "model_error", "code": "model_unavailable"}},
         )
 else:
     app.add_api_route("/v1/tagging", _tagging_handler, methods=["POST"],

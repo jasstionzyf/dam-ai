@@ -303,7 +303,7 @@ def test_t1_server_imports_without_torch(monkeypatch):
                 assert c.get("/healthz").status_code == 200
                 r = c.post("/v1/embeddings", json={"model": "clip-vit-l14", "input": "x"})
                 assert r.status_code == 503
-                assert r.json()["error"]["code"] == "model_not_ready"
+                assert r.json()["error"]["code"] == "model_unavailable"
         finally:
             for m in list(sys.modules):
                 if m.startswith(("embedder", "server")):

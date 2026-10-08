@@ -1,0 +1,130 @@
+# dam-ai root compose — one command, three engines (Phase 4 / T9).
+#
+#   docker compose -f docker-compose.yml up -d                     # classic only (CPU, no-GPU degraded mode)
+#   docker compose -f docker-compose.yml --profile embedder up -d  # + embedder (GPU :8090)
+#   docker compose -f docker-compose.yml --profile tagger up -d    # + tagger   (GPU :8091, co-located vLLM)
+#   docker compose -f docker-compose.yml --profile embedder --profile tagger up -d   # full GPU stack
+#
+# Degraded mode contract (docs/design.md Phase 4): an engine that is not part of
+# the running deployment answers its model endpoints with
+#   {"error": {"code": "model_unavailable", ...}} HTTP 503
+# and the process stays up (server/app.py DAMAI_EMBEDDER=0 path, classic.api /
+# tagger.engine engine-import guards). /healthz never depends on a model backend.
+#
+# GPU sizing note: embedder (~8G, 4 models) and tagger (vLLM util 0.70 -> 11.2G
+# budget) are mutually exclusive on a 16GB card (T2 adjudication); both fit only
+# on >=24GB cards not shared with other tenants. classic is CPU-only and always
+# safe to run.
+#
+# Per-engine standalone files stay authoritative for single-engine bring-up:
+# deploy/compose/{classic,embedder,tagger}.yml. This file mirrors their service
+# definitions so `docker compose config` validates the trio as one project.
+
+name: damai
+
+services:
+  classic:
+    # CPU engine, no weights, no GPU reservation — the degraded-mode anchor.
+    # Production image: build via deploy/classic/Dockerfile (tools-parity base).
+    # Eval mode (below): damai-classic:v0.1 + read-only repo mount.
+    image: damai-classic:v0.1
+    build:
+      context: .
+      dockerfile: deploy/classic/Dockerfile
+    container_name: damai-classic
+    restart: unless-stopped
+    ports:
+      - "8092:8092"
+    environment:
+      DAMAI_ENGINE: classic
+      DAMAI_CLASSIC_MODEL_DIR: /app/models/color
+      PYTHONPATH: /app
+      # classic-only deployment: no /models mount, embedder manager off ->
+      # /v1/embeddings answers 503 model_unavailable (degraded mode).
+      DAMAI_EMBEDDER: "0"
+    volumes:
+      - .:/app:ro
+    command: ["/data/apps/miniconda3/envs/sj/bin/python", "-m", "classic.__main__"]
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fs http://127.0.0.1:8092/healthz || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    logging:
+      driver: json-file
+      options: { max-size: "50m", max-file: "3" }
+
+  embedder:
+    profiles: ["embedder"]
+    # GPU engine: /v1/embeddings over 4 registered models (see registry/models.yaml).
+    image: dam-ai/embedder:v0.2.0
+    build:
+      context: .
+      dockerfile: deploy/embedder/Dockerfile
+    container_name: dam-ai-embedder
+    depends_on: []
+    volumes:
+      - /data1/mlib_data/zhaoyufei_cache/soujpg/models:/models:ro
+    ports:
+      - "8090:8090"
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=0
+      - DAMAI_REGISTRY=/app/dam-ai/registry/models.yaml
+      - HF_HUB_OFFLINE=1
+      - TRANSFORMERS_OFFLINE=1
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ["0"]
+              capabilities: [gpu]
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        window: 10s
+
+  tagger:
+    profiles: ["tagger"]
+    # vLLM engine: proxy :8091 + co-located vLLM 127.0.0.1:8101 via supervisord.
+    image: damai-tagger:v0.1
+    build:
+      context: .
+      dockerfile: deploy/tagger/Dockerfile
+    container_name: damai-tagger
+    restart: unless-stopped
+    ports:
+      - "8091:8091"
+    environment:
+      DAMAI_ENGINE: tagger
+      DAMAI_VLLM_URL: http://127.0.0.1:8101
+      HF_HUB_OFFLINE: "1"
+      TRANSFORMERS_OFFLINE: "1"
+      DAMAI_VLLM_MODEL: /models/qwen3.5-4b
+      DAMAI_VLLM_SERVED_NAME: qwen3.5-4b
+      DAMAI_VLLM_PORT: "8101"
+      # 16GB card: 0.70 util = 10.9G budget (see deploy/compose/tagger.yml notes)
+      DAMAI_VLLM_GPU_UTIL: "0.70"
+      DAMAI_VLLM_MAX_MODEL_LEN: "8192"
+      DAMAI_VLLM_MAX_NUM_SEQS: "8"
+    volumes:
+      - /data1/mlib_data/zhaoyufei_cache/soujpg/models:/models:ro
+      - .:/app:ro
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ["0"]
+              capabilities: [gpu]
+    command: ["/opt/conda/bin/supervisord", "-c", "/app/deploy/tagger/supervisord.conf"]
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fs http://127.0.0.1:8091/healthz || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    logging:
+      driver: json-file
+      options: { max-size: "50m", max-file: "3" }

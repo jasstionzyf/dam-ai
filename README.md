@@ -60,7 +60,13 @@ curl -s localhost:8091/v1/tagging -H 'Content-Type: application/json' -d '{
 
 Container bring-up (the supported production path) is one compose file per
 engine: `docker compose -f deploy/compose/classic.yml up -d` (same pattern for
-`embedder.yml` / `tagger.yml`; engine ports 8090/8091/8092).
+`embedder.yml` / `tagger.yml`; engine ports 8090/8091/8092). One file for the
+whole stack: `docker compose -f docker-compose.yml up -d` — classic always
+starts (CPU anchor); `--profile embedder` / `--profile tagger` add the GPU
+engines. On a 16GB card the embedder and tagger are mutually exclusive (see
+docker-compose.yml header); a GPU-less host runs classic-only and every model
+endpoint answers `503 {"error": {"code": "model_unavailable"}}` instead of
+crashing (pinned by tests/test_degraded.py).
 
 More:
 

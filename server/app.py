@@ -88,8 +88,14 @@ def readyz() -> JSONResponse:
             body["engine"] = "classic (embedder not part of this deployment)"
         return JSONResponse(status_code=200, content=body)
     snap = _manager.snapshot()
+    if snap["ready"]:
+        status = "ready"
+    elif any(m["state"] == "error" for m in snap["models"].values()):
+        status = "degraded"  # some model failed to load; the rest still serve
+    else:
+        status = "loading"
     body = {
-        "status": "ready" if snap["ready"] else "loading",
+        "status": status,
         "registry_models": len(REGISTRY),
         "models": snap["models"],
         "uptime_s": snap["uptime_s"],
@@ -127,8 +133,10 @@ def get_model(model_id: str) -> dict[str, Any]:
 @app.post("/v1/embeddings")
 async def v1_embeddings(request: Request) -> JSONResponse:
     if _manager is None:
+        # Degraded mode (Phase 4): engine absent from this deployment (no torch /
+        # DAMAI_EMBEDDER=0) -> OpenAI-style 503 model_unavailable, process stays up.
         raise openai_error(503, f"embedder engine unavailable: {_IMPORT_ERROR}",
-                           "model_error", "model_not_ready")
+                           "model_error", "model_unavailable")
     body = await request.json()
     return JSONResponse(await embeddings_handler(body))
 
