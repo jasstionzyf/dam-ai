@@ -14,7 +14,7 @@ from typing import Any
 
 import yaml
 
-VALID_LOADERS = {"sentence_transformers", "open_clip"}
+VALID_LOADERS = {"sentence_transformers", "open_clip", "transformers"}
 VALID_ENGINES = {"transformers", "open_clip", "vllm"}
 VALID_MODALITIES = {"image", "text"}
 VALID_POOLING = {"cls", "mean", "pooler", "last_token"}
@@ -52,6 +52,7 @@ class ModelSpec:
     preprocess: Preprocess
     description: str = ""
     weights: str = field(default="")  # optional: weights filename inside path
+    loader_config: dict[str, Any] = field(default_factory=dict)  # optional loader-specific settings
 
     def to_dict(self) -> dict[str, Any]:
         d = dataclasses.asdict(self)
@@ -79,7 +80,7 @@ def _parse_entry(raw: dict[str, Any], index: int) -> ModelSpec:
     _require(isinstance(raw, dict),
              f"models[{index}]: entry must be a mapping, got {type(raw).__name__}")
     allowed = {"name", "path", "loader", "engine", "dims", "modalities", "normalized",
-               "preprocess", "description", "weights"}
+               "preprocess", "description", "weights", "loader_config"}
     unknown = set(raw) - allowed
     _require(not unknown,
              f"models[{index}] ({raw.get('name', '?')}): unknown fields {sorted(unknown)}")
@@ -124,6 +125,11 @@ def _parse_entry(raw: dict[str, Any], index: int) -> ModelSpec:
     _require(len(modalities) == len(set(modalities)), f"{name}: modalities has duplicates")
     _require(isinstance(raw["normalized"], bool), f"{name}: normalized must be bool")
 
+    loader_config = raw.get("loader_config", {})
+    _require(isinstance(loader_config, dict), f"{name}: loader_config must be a mapping")
+    _require(all(isinstance(k, str) for k in loader_config),
+             f"{name}: loader_config keys must be strings")
+
     mean = tuple(float(x) for x in mean)  # type: ignore[assignment]
     std = tuple(float(x) for x in std)  # type: ignore[assignment]
     return ModelSpec(
@@ -137,6 +143,7 @@ def _parse_entry(raw: dict[str, Any], index: int) -> ModelSpec:
         preprocess=Preprocess(resolution=resolution, mean=mean, std=std, pooling=pooling),
         description=raw.get("description", ""),
         weights=raw.get("weights", ""),
+        loader_config=loader_config,
     )
 
 

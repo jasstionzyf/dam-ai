@@ -1,0 +1,7 @@
+# Runtime deps of the tagger proxy app (vLLM itself comes with the base image).
+# FastAPI/httpx/uvicorn are already present in soujpg/qwen-vl:v0.22.0 — these
+# pins exist to make the image build reproducible on a bare base.
+fastapi>=0.110
+httpx>=0.27
+uvicorn>=0.29
+supervisord>=4.2

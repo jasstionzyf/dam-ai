@@ -1,0 +1,63 @@
+# dam-ai tagger engine (vLLM) — single compose service, port 8091.
+# Two processes in one container via supervisord: vllm serve (127.0.0.1:8101)
+# + tagger proxy (0.0.0.0:8091).
+# Bring-up notes: ../tagger-README.md
+name: damai-tagger
+
+services:
+  tagger:
+    image: damai-tagger:v0.1
+    container_name: damai-tagger
+    restart: unless-stopped
+    ports:
+      - "8091:8091"
+    environment:
+      # engine selection for the shared server code
+      DAMAI_ENGINE: tagger
+      # co-located vLLM OpenAI server (container-internal)
+      DAMAI_VLLM_URL: http://127.0.0.1:8101
+      # offline model loading: bare directory mount + offline env (see PLAN.md)
+      HF_HUB_OFFLINE: "1"
+      TRANSFORMERS_OFFLINE: "1"
+      # vLLM launcher knobs (start-vllm.sh reads these)
+      DAMAI_VLLM_MODEL: /models/qwen3.5-4b
+      DAMAI_VLLM_SERVED_NAME: qwen3.5-4b
+      DAMAI_VLLM_PORT: "8101"
+      # qwen3.5-4b bf16 ~8.1GB weights. gpu7:4080 (15.57GiB) shares ~4.2GB with
+      # dinov2 :8086 / siglip2 :8085 / tools, OUTSIDE the torch pool. vLLM 0.19
+      # startup check requires util*total <= free-at-launch, so 0.80/0.90 are
+      # rejected ("Free memory on device (11.41/15.57) is less than desired
+      # utilization"); 0.70 -> 10.9GB budget, ~2.8GB KV after weights. Fine for
+      # max-model-len 8192 x 8 seqs. Raise only if the embedding tenants move.
+      DAMAI_VLLM_GPU_UTIL: "0.70"
+      DAMAI_VLLM_MAX_MODEL_LEN: "8192"
+      DAMAI_VLLM_MAX_NUM_SEQS: "8"
+    volumes:
+      # model source dir (gpu7/gpu0 same path, PLAN.md); read-only
+      - /data1/mlib_data/zhaoyufei_cache/soujpg/models:/models:ro
+      # code mount (eval mode): repo read-only as /app. The vllm conda env in the
+      # base image already ships fastapi/httpx/uvicorn/supervisord, so no build is
+      # needed. Production mode: build damai-tagger:v0.1 via deploy/tagger/build.sh
+      # (code baked at /app) and remove this mount.
+      - /data/projects/dam-ai:/app:ro
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ["0"]
+              capabilities: [gpu]
+    # supervisord keeps both processes up; the proxy is the service entrypoint
+    # (supervisord ships with the vllm conda env, not in /usr/bin)
+    command: ["/opt/conda/bin/supervisord", "-c", "/app/deploy/tagger/supervisord.conf"]
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fs http://127.0.0.1:8091/healthz || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"

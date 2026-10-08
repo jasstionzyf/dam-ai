@@ -1,5 +1,8 @@
 # dam-ai model registry — single addressing entry: model name -> local path (mount /models).
-# Loader values: sentence_transformers | open_clip. Paths are container mount points, read-only.
+# Loaders: sentence_transformers (ST modules.json layout) | open_clip (weights= .pt/.bin in path) |
+#          transformers (plain HF transformers layout, AutoModel).
+# Names MUST match on-disk artifacts under /data1/mlib_data/zhaoyufei_cache/soujpg/models/
+# (siglip-so400m is HF-format SigLIP, not siglip2/open_clip; dinov2-base is HF DINOv2, not dinov3).
 # Preprocess (resolution/mean/std/pooling) is locked per model — do not change without re-embedding.
 models:
   - name: qwen3-vl-embedding-2b
@@ -9,23 +12,27 @@ models:
     dims: 2048
     modalities: [image, text]
     normalized: true
-    description: Qwen3-VL-Embedding-2B multimodal embeddings (ST; on gpu7/gpu0 model source dir)
+    description: Qwen3-VL-Embedding-2B multimodal embeddings (ST wrapper in model scripts/, last-token pooling)
     weights: ""
+    loader_config:
+      wrapper: qwen3_vl_embedding.Qwen3VLEmbedder
+      dtype: float16
+      max_pixels: 786432
     preprocess:
       resolution: 768
       mean: [0.5, 0.5, 0.5]
       std: [0.5, 0.5, 0.5]
       pooling: last_token
 
-  - name: siglip2-so400m
-    path: /models/siglip2-so400m
-    loader: open_clip
-    engine: open_clip
+  - name: siglip-so400m
+    path: /models/siglip-so400m
+    loader: transformers
+    engine: transformers
     dims: 1152
     modalities: [image, text]
     normalized: true
-    description: SigLIP2 so400m image+text encoder (open_clip)
-    weights: open_clip_pytorch_model.bin
+    description: SigLIP so400m (HF transformers format on disk) — image via SiglipModel.get_image_features, text via SiglipModel.get_text_features
+    weights: ""
     preprocess:
       resolution: 384
       mean: [0.5, 0.5, 0.5]
@@ -33,13 +40,13 @@ models:
       pooling: cls
 
   - name: clip-vit-l14
-    path: /models/clip-vit-l14
+    path: /models/clip
     loader: open_clip
     engine: open_clip
     dims: 768
     modalities: [image, text]
     normalized: true
-    description: CLIP ViT-L/14 (open_clip; local ViT-L-14.pt)
+    description: CLIP ViT-L/14 (open_clip; local weights ViT-L-14.pt in the shared clip/ dir)
     weights: ViT-L-14.pt
     preprocess:
       resolution: 224
@@ -47,14 +54,14 @@ models:
       std: [0.26862954, 0.26130258, 0.27577711]
       pooling: cls
 
-  - name: dinov3-vitb16
-    path: /models/dinov3-vitb16
-    loader: open_clip
-    engine: open_clip
+  - name: dinov2-base
+    path: /models/dinov2-base
+    loader: transformers
+    engine: transformers
     dims: 768
     modalities: [image]
     normalized: true
-    description: DINOv3 ViT-B/16 image-only encoder (open_clip)
+    description: DINOv2 ViT-B/14 (HF transformers format, image-only) — CLS token features
     weights: ""
     preprocess:
       resolution: 224

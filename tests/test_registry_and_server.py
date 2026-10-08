@@ -26,7 +26,7 @@ client = TestClient(app)
 
 def test_registry_has_exactly_4_models():
     reg = load_registry(REGISTRY_YAML)
-    assert set(reg) == {"qwen3-vl-embedding-2b", "siglip2-so400m", "clip-vit-l14", "dinov3-vitb16"}
+    assert set(reg) == {"qwen3-vl-embedding-2b", "siglip-so400m", "clip-vit-l14", "dinov2-base"}
 
 
 def test_registry_entries_all_fields_valid():
@@ -34,7 +34,7 @@ def test_registry_entries_all_fields_valid():
     for name, spec in reg.items():
         assert spec.name == name
         assert spec.path.startswith("/models/")
-        assert spec.loader in {"sentence_transformers", "open_clip"}
+        assert spec.loader in {"sentence_transformers", "open_clip", "transformers"}
         assert spec.engine in {"transformers", "open_clip", "vllm"}
         assert isinstance(spec.dims, int) and spec.dims > 0
         assert spec.modalities and set(spec.modalities) <= {"image", "text"}
@@ -42,16 +42,19 @@ def test_registry_entries_all_fields_valid():
         pp = spec.preprocess
         assert pp.resolution > 0 and len(pp.mean) == 3 and len(pp.std) == 3
         assert pp.pooling in {"cls", "mean", "pooler", "last_token"}
+        assert isinstance(spec.loader_config, dict)
 
 
 def test_registry_known_values():
     reg = load_registry(REGISTRY_YAML)
     assert reg["qwen3-vl-embedding-2b"].dims == 2048
     assert reg["qwen3-vl-embedding-2b"].loader == "sentence_transformers"
-    assert reg["siglip2-so400m"].dims == 1152
+    assert reg["siglip-so400m"].dims == 1152
     assert reg["clip-vit-l14"].dims == 768
-    assert reg["dinov3-vitb16"].dims == 768
-    assert reg["dinov3-vitb16"].modalities == ("image",)  # image-only
+    assert reg["clip-vit-l14"].weights == "ViT-L-14.pt"
+    assert reg["clip-vit-l14"].path == "/models/clip"
+    assert reg["dinov2-base"].dims == 768
+    assert reg["dinov2-base"].modalities == ("image",)  # image-only
 
 
 # ---------- bad yaml / bad entries refuse to load ----------

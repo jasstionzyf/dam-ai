@@ -1,0 +1,29 @@
+# dam-ai embedder — gpu0, port 8090. GPU0 shares vLLM (13.2G) + TEI (2x1.4G);
+# qwen3-vl fp16 ~4.3G + siglip ~1.6G + clip ~1.7G + dinov2 ~0.35G fit in the remainder.
+# Model source dir (gpu0/gpu7 same path) mounted read-only at /models.
+services:
+  dam-ai-embedder:
+    build:
+      context: ../..
+      dockerfile: deploy/embedder/Dockerfile
+    image: dam-ai/embedder:v0.2.0
+    container_name: dam-ai-embedder
+    depends_on: []
+    volumes:
+      - /data1/mlib_data/zhaoyufei_cache/soujpg/models:/models:ro
+    ports:
+      - "8090:8090"
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=0
+      - DAMAI_REGISTRY=/app/dam-ai/registry/models.yaml
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ["0"]
+              capabilities: [gpu]
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        window: 10s
