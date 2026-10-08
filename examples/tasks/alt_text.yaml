@@ -1,0 +1,41 @@
+# Built-in example task template: alt_text
+# Accessibility alt text for one DAM asset — the copyable example referenced
+# by docs/template-guide.md and docs/external-tasks.md. Loads through the same
+# registry/tasks.py validation as the built-ins (pytest tests/test_tasks.py).
+name: alt_text
+version: 1
+model_default: qwen3.5-4b
+allowed_models: [qwen3.5-4b]
+images: {min: 1, max: 1}
+description: "Write one concise accessibility alt-text sentence for an image."
+task_params:
+  - name: language
+    type: string
+    description: "Language code for the alt text (e.g. en, zh)."
+    required: false
+    default: en
+  - name: max_chars
+    type: number
+    description: "Soft upper bound of alt text characters."
+    required: false
+    default: 125
+prompt: |
+  You write alt text for a digital asset library. Look at the image and write
+  exactly one concise alt-text sentence in language code
+  "{{ task_params.language }}". Describe the subject and its salient visual
+  attributes. No editorials, no "image of ..." phrasing. Keep it under
+  {{ task_params.max_chars }} characters.
+
+  Return ONLY a JSON object matching the given schema.
+schema:
+  type: object
+  properties:
+    alt_text:
+      type: string
+      minLength: 3
+    language:
+      type: string
+      minLength: 2
+  required: [alt_text, language]
+  additionalProperties: false
+params: {temperature: 0.2, max_tokens: 128}

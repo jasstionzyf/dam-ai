@@ -35,6 +35,39 @@ Design principles:
 5. Preprocessing (resolution / mean-std / pooling) is locked in the model registry —
    must match model training.
 
+## Quick start
+
+All engines share one server codebase; each compose service picks its engine
+via `DAMAI_ENGINE` and its port. Development runs use the repo venv
+(`uv venv --python 3.11 && uv pip install fastapi uvicorn httpx jinja2
+jsonschema pyyaml numpy pillow scikit-image scikit-learn scipy faiss-cpu` —
+see `deploy/*/requirements.txt` for the pinned set).
+
+```bash
+# 1. classic engine (CPU, no weights) — :8092
+DAMAI_EMBEDDER=0 .venv/bin/python -m uvicorn server.app:app --port 8092 &
+curl -s localhost:8092/healthz     # {"status":"ok", ...}
+
+# 2. embedder engine (needs /models + GPU, or DAMAI_MODELS_ROOT) — :8090
+curl -s localhost:8090/v1/embeddings -H 'Content-Type: application/json' \
+  -d '{"model": "clip-vit-l14", "input": ["a red bicycle"]}'
+
+# 3. tagger engine (co-located vLLM, see deploy/tagger-README.md) — :8091
+curl -s localhost:8091/v1/tagging -H 'Content-Type: application/json' -d '{
+  "task": "image_caption_metadata",
+  "inputs": [{"id": "a1", "image_url": "https://example.com/a.jpg"}]}'
+```
+
+Container bring-up (the supported production path) is one compose file per
+engine: `docker compose -f deploy/compose/classic.yml up -d` (same pattern for
+`embedder.yml` / `tagger.yml`; engine ports 8090/8091/8092).
+
+More:
+
+- add a model → [docs/model-onboarding.md](docs/model-onboarding.md)
+- write a tagging template → [docs/template-guide.md](docs/template-guide.md)
+- private/business templates → [docs/external-tasks.md](docs/external-tasks.md)
+
 ## Deployment
 
 Container + docker compose only (no host venv services). One compose service per
