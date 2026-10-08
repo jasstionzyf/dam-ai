@@ -32,7 +32,11 @@ services:
       DAMAI_VLLM_GPU_UTIL: "0.70"
       DAMAI_VLLM_MAX_MODEL_LEN: "8192"
       DAMAI_VLLM_MAX_NUM_SEQS: "8"
+      # T12: business templates from the image-front-api repo overlay built-ins
+      DAMAI_TASK_DIRS: /damai-tasks
     volumes:
+      # business task templates (image-front-api repo on gpu7); read-only
+      - /data/projects/dam-ai/deploy/damai-tasks:/damai-tasks:ro
       # model source dir (gpu7/gpu0 same path, PLAN.md); read-only
       - /data1/mlib_data/zhaoyufei_cache/soujpg/models:/models:ro
       # code mount (eval mode): repo read-only as /app. The vllm conda env in the
