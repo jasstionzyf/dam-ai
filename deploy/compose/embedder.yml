@@ -16,6 +16,11 @@ services:
     environment:
       - NVIDIA_VISIBLE_DEVICES=0
       - DAMAI_REGISTRY=/app/dam-ai/registry/models.yaml
+      # gpu0 shares the 3090 with vLLM(:30000)+TEI x2 — loading all 4 registry
+      # models OOMs (T13 live). Only the model gcf embeddingProvider calls is
+      # loaded here; qwen3-vl-embedding stays on gpu0:30001 (qwen3-vl-embedding
+      # container) for damAiClient default-model callers.
+      - DAMAI_LOAD_MODELS=clip-vit-l14
       # offline model loading: bare directory mount + offline env (see PLAN.md)
       - HF_HUB_OFFLINE=1
       - TRANSFORMERS_OFFLINE=1

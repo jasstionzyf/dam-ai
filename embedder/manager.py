@@ -31,7 +31,17 @@ class Manager:
         self.registry: dict[str, ModelSpec] = load_registry(registry_path)
         self.models_root = models_root or os.environ.get("DAMAI_MODELS_ROOT") or None
         self._models: dict[str, LoadableModel] = {}
-        self._states: dict[str, str] = {n: "loading" for n in self.registry}
+        # DAMAI_LOAD_MODELS="a,b" restricts which registry models this process
+        # loads (deployment knob: gpu0 coexists with vLLM in 24G, only the
+        # models the gcf config actually calls are loaded; "" = all).
+        only = [n.strip() for n in os.environ.get("DAMAI_LOAD_MODELS", "").split(",") if n.strip()]
+        unknown = [n for n in only if n not in self.registry]
+        if unknown:
+            raise ValueError(f"DAMAI_LOAD_MODELS names not in registry: {unknown}")
+        self._targets = only or list(self.registry)
+        self._states: dict[str, str] = {
+            n: ("loading" if n in self._targets else "skipped") for n in self.registry
+        }
         self._errors: dict[str, str] = {}
         self._lock = threading.Lock()
         self._sem = threading.BoundedSemaphore(2)  # max concurrent forwards (OOM guard)
@@ -48,7 +58,7 @@ class Manager:
         if self._started:
             return
         self._started = True
-        for name in self.registry:
+        for name in self._targets:
             self._executor.submit(self._load_one, name)
 
     def _load_one(self, name: str) -> None:
@@ -84,7 +94,7 @@ class Manager:
     # ---------- introspection ----------
 
     def ready(self) -> bool:
-        return all(s == "ready" for s in self._states.values())
+        return all(s in ("ready", "skipped") for s in self._states.values())
 
     def snapshot(self) -> dict[str, Any]:
         return {
