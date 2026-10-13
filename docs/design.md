@@ -115,7 +115,11 @@ tagger 引擎不止 vLLM：引入 TagBackend 抽象层，每个 backend 适配�
 
 - `vllm`（现状默认）：本地 GPU，guided decoding json_schema，吞吐红利
 - `openai_compat`：任意 OpenAI 兼容多模态 chat 端点——dashscope 兼容模式、OpenAI、Ollama `/v1`、
-  vLLM 云实例均走此 backend（content-parts image_url base64 + Bearer key）
+  vLLM 云实例均走此 backend（content-parts image_url + Bearer key）
+- **图片传递策略（裁决 2026-10-13）：一律服务端下载 → base64 data URL 提交，不做 URL 透传**。
+  实测依据：dashscope 兼容模式对 image_url 可达性校验严格（unsplash 可过，soujpg CDN 图被
+  InvalidParameter 拒绝；base64 4MB 图 qwen3-vl-plus 打标 JSON 输出正常）。服务端下载沿用
+  /v1/tagging 既有拉图逻辑（超时/重试/error 通道统一），URL 仅为接口入参形式
 - 预留 native adapter 位：仅当某家兼容口实测不够（如 Ollama 老版 /v1 图片行为差异）才加
   `ollama` / `dashscope` 专属 backend，不预先实现
 
