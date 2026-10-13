@@ -106,6 +106,28 @@ task_version 随响应返回写回资产记录（可定位重刷范围）；评�
 - 内置模板 `registry/tasks.d/*.yaml` 只放通用模板；业务/私有模板放外部目录，不进开源仓
 - 外部目录由 env `DAMAI_TASK_DIRS` 指定（冒号分隔可多个），compose volume 挂载进 tagger service；
   同名模板外部覆盖内置（启动时 log 记录覆盖清单）
+
+#### 3.1 tagger provider backend 层（已裁决 2026-10-13）
+
+tagger 引擎不止 vLLM：引入 TagBackend 抽象层，每个 backend 适配一类上游，差异（鉴权、图片传递、
+结构化输出、参数名）吸收在各自 backend 内，无差异走同一段代码。`/v1/tagging` 对外契约不变
+（请求/响应 schema、模板锁死、task_version 全部照旧），backend 选择对调用方透明：
+
+- `vllm`（现状默认）：本地 GPU，guided decoding json_schema，吞吐红利
+- `openai_compat`：任意 OpenAI 兼容多模态 chat 端点——dashscope 兼容模式、OpenAI、Ollama `/v1`、
+  vLLM 云实例均走此 backend（content-parts image_url base64 + Bearer key）
+- 预留 native adapter 位：仅当某家兼容口实测不够（如 Ollama 老版 /v1 图片行为差异）才加
+  `ollama` / `dashscope` 专属 backend，不预先实现
+
+能力协商（capabilities，backend 静态声明 + 启动时探测一次）：
+`structured: json_schema | json_mode | prompt_only`、`multi_image: bool`、`max_image_bytes`。
+模板层按能力自动降级：backend 支持 schema → guided/json_schema；仅 json_mode → response_format；
+prompt_only → prompt 约束 + 宽松 JSON 提取，**统一由 tagger 归一解析**，保证 /v1/tagging 响应
+output schema 恒一致（失败 item 走既有 error 通道，不静默吞）。
+
+动机：无 GPU 的 self-hosted 用户配一个 dashscope key 即可跑全量打标（呼应「GPU 可选、导入
+永不阻塞」原则）；同一模板横评不同 backend/模型时输出可比性由模板锁死 + 归一解析共同保证。
+
 - 外部模板与内置走同一套 schema 校验，校验失败拒绝启动；allowed_models / params 锁死 /
   task_version 规则对外部模板同等生效，只是存放位置不同
 - docs/ 附 example template + 外部目录接入说明（下游接入指南）
